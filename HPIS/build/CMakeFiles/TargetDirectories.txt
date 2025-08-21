@@ -1,0 +1,3 @@
+/home/gayan/old2/High-Performance-Image-Stiching/HPIS/build/CMakeFiles/app.dir
+/home/gayan/old2/High-Performance-Image-Stiching/HPIS/build/CMakeFiles/edit_cache.dir
+/home/gayan/old2/High-Performance-Image-Stiching/HPIS/build/CMakeFiles/rebuild_cache.dir

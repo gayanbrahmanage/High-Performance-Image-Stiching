@@ -22,14 +22,24 @@ class roi{
 
 class image{
     public:
-        cv::Ptr<cv::ORB> orb = cv::ORB::create();
+        cv::Ptr<cv::ORB> orb = cv::ORB::create(500, 1.2f, 8, 5, 0, 2, cv::ORB::HARRIS_SCORE, 31, 20);
+        // 500 → nfeatures
+        // 1.2f → scaleFactor
+        // 8 → nlevels
+        // 5 → edgeThreshold (small for small ROIs)
+        // 0 → firstLevel
+        // 2 → WTA_K
+        // cv::ORB::HARRIS_SCORE → scoreType
+        // 31 → patchSize
+        // 5 → fastThreshold
+
         std::vector<std::pair<int,int>> roi_matches;
         cv::Mat H;
         int id=-1;
         int width;
         int height;
-        int roi_width=100;
-        int roi_height=100;
+        int roi_width=50;
+        int roi_height=50;
         int roi_row_count;
         int roi_col_count;
         std::vector<std::vector<roi>> ROIs;

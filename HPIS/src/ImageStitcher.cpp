@@ -33,6 +33,7 @@ inline void detectorb(const cv::Mat& img, roi& r, cv::Ptr<cv::ORB> orb)
 
     r.valid=true;
     // Find the keypoint with the maximum response
+    std::cout << "Found " << keypoints.size() << " keypoints." << std::endl;
     int bestIdx = 0;
     float maxResponse = keypoints[0].response;
     for (size_t i = 1; i < keypoints.size(); ++i) {
@@ -96,6 +97,7 @@ inline void matchorb(image& img1, image& img2, std::vector<std::pair<int,int>>& 
             }
         }
     }
+    std::cout << "Found " << roi_matches.size() << " matches." << std::endl;
 }
 
 // Compute homography from exactly 4 point correspondences

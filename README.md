@@ -18,11 +18,14 @@
 
 ### Sample Result
 
+### Input Images
+
 | img1.jpg | img2.jpg | img3.jpg |
 |----------|----------|----------|
-| ![img1](inputs/C/20250821_195822.jpg) | ![img2](inputs/C/20250821_195825.jpg) | ![img3](inputs/C/20250821_195827.jpg) |
+| <img src="inputs/C/20250821_195822.jpg" width="50%"> | <img src="inputs/C/20250821_195825.jpg" width="50%"> | <img src="inputs/C/20250821_195827.jpg" width="50%"> |
 
-![Set C](outputs/panorama.jpg)
+![Set C](<img src="outputs/panorama.jpg", width="50%")
+
 
 ## Performance and Bottleneck Analysis
 

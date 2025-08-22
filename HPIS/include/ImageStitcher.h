@@ -36,8 +36,8 @@ class image{
         std::vector<std::pair<int,int>> roi_matches;
         cv::Mat H;
         int id=-1;
-        int width;
-        int height;
+        int width=2268;
+        int height=4032;
         int roi_width=50;
         int roi_height=50;
         int roi_row_count;
@@ -56,8 +56,11 @@ class ImageStitcher {
 
 public:
     int n_images=0;
+    int nmax=0;
     image img1;
     image img2;
+    cv::Mat Panorama;  // global canvas
+    cv::Mat GHomography = cv::Mat::eye(3, 3, CV_64F); // global accumulated H
 
     // Constructor
     ImageStitcher();
@@ -67,9 +70,6 @@ public:
 
     // Add image to stitcher
     void addImage(const std::string& image_name);
-
-    // Perform stitching and return panorama
-    cv::Mat stitch();
 
 };
 

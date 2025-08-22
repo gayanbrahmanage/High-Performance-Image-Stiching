@@ -33,7 +33,6 @@ inline void detectorb(const cv::Mat& img, roi& r, cv::Ptr<cv::ORB> orb)
 
     r.valid=true;
     // Find the keypoint with the maximum response
-    std::cout << "Found " << keypoints.size() << " keypoints." << std::endl;
     int bestIdx = 0;
     float maxResponse = keypoints[0].response;
     for (size_t i = 1; i < keypoints.size(); ++i) {
@@ -66,19 +65,24 @@ inline void matchorb(image& img1, image& img2, std::vector<std::pair<int,int>>& 
 
             int bestDist = INT_MAX;
             cv::Point bestMatch(-1, -1);
-
+            int d=1;
             // Search in row i-1, i, i+1 of img2
-            for (int di = -1; di <= 1; di++)
+            for (int di = -d; di <= d; di++)
             {
                 int r2row = i + di;
                 if (r2row < 0 || r2row >= img2.ROIs.size()) continue;
 
-                for (int jj = 0; jj < img2.ROIs[r2row].size(); jj++)
+                for (int jj = 0; jj < j; jj++)
                 {
                     const roi& r2 = img2.ROIs[r2row][jj];
                     if (!r2.valid) continue;
 
                     int dist = DescriptorDistance(r1.descriptor, r2.descriptor);
+                    int ORB_HAMMING_DISTANCE_TH=64;
+
+                    if(dist>ORB_HAMMING_DISTANCE_TH)
+                    continue;
+
                     if (dist < bestDist)
                     {
                         bestDist = dist;
@@ -206,8 +210,6 @@ inline void ransac(image& img1) {
 
         // Compute reprojection error
         double error = computeReprojectionError(img1, H);
-        std::cout << "Reprojection error: " << error << std::endl;
-
         // Keep the best H
         if (error < bestError) {
             bestError = error;
@@ -224,50 +226,121 @@ inline void ransac(image& img1) {
 
 }
 
-cv::Mat generatePanorama(const image& img1, const image& img2)
+cv::Mat generatePanorama(const image& img1, const image& img2, cv::Mat& Panorama, cv::Mat& GHomography, int nmax)
 {
     CV_Assert(!img1.img.empty() && !img2.img.empty());
     CV_Assert(!img1.H.empty());
 
-    // Warp corners of img2
-    std::vector<cv::Point2f> cornersImg2 = {
-        {0,0},
-        {static_cast<float>(img2.img.cols),0},
-        {static_cast<float>(img2.img.cols),static_cast<float>(img2.img.rows)},
-        {0, static_cast<float>(img2.img.rows)}
-    };
-    std::vector<cv::Point2f> warpedCorners(4);
-    cv::perspectiveTransform(cornersImg2, warpedCorners, img1.H);
-
-    // Horizontal alignment: keep vertical origin same as img1
-    float minX = 0;
-    float maxX = static_cast<float>(img1.img.cols);
-    float minY = 0;
-    float maxY = static_cast<float>(img1.img.rows);
-
-    for (const auto& pt : warpedCorners) {
-        if (pt.x < minX) minX = pt.x;
-        if (pt.x > maxX) maxX = pt.x;
-        if (pt.y < minY) minY = pt.y;
-        if (pt.y > maxY) maxY = pt.y;
+    // First image: initialize Panorama and GHomography
+    if (img1.id == 1) {
+        Panorama = cv::Mat::zeros(img1.img.rows, img1.img.cols * nmax, img1.img.type());
+        img1.img.copyTo(Panorama(cv::Rect(0, 0, img1.img.cols, img1.img.rows)));
+        GHomography = img1.H.clone();
+    } else {
+        // Accumulate homography
+        GHomography = GHomography * img1.H.inv();
     }
 
-    // Only horizontal translation if minX < 0
-    cv::Mat translation = (cv::Mat_<double>(3,3) << 1, 0, -minX, 0, 1, 0, 0, 0, 1);
-    cv::Mat H_translated = translation * img1.H;
+    // Warp img2 corners in Panorama space
+    std::vector<cv::Point2f> corners = {
+        {0.f, 0.f},
+        {static_cast<float>(img2.img.cols), 0.f},
+        {static_cast<float>(img2.img.cols), static_cast<float>(img2.img.rows)},
+        {0.f, static_cast<float>(img2.img.rows)}
+    };
+    std::vector<cv::Point2f> warpedCorners(4);
+    cv::perspectiveTransform(corners, warpedCorners, GHomography);
 
-    int panoWidth = static_cast<int>(maxX - minX);
-    int panoHeight = static_cast<int>(maxY - minY);
+    // Compute bounding box
+    float minX = 0.f, minY = 0.f;
+    float maxX = static_cast<float>(Panorama.cols);
+    float maxY = static_cast<float>(Panorama.rows);
+    for (auto& pt : warpedCorners) {
+        minX = std::min(minX, pt.x);
+        minY = std::min(minY, pt.y);
+        maxX = std::max(maxX, pt.x);
+        maxY = std::max(maxY, pt.y);
+    }
 
-    cv::Mat panorama;
-    cv::warpPerspective(img2.img, panorama, H_translated, cv::Size(panoWidth, panoHeight));
+    int xOffset = static_cast<int>(-std::floor(minX));
+    int yOffset = static_cast<int>(-std::floor(minY));
+    int newWidth = static_cast<int>(std::ceil(maxX)) + xOffset;
+    int newHeight = static_cast<int>(std::ceil(maxY)) + yOffset;
 
-    // Place img1 at vertical origin
-    cv::Mat roi = panorama(cv::Rect(static_cast<int>(-minX), 0, img1.img.cols, img1.img.rows));
-    //img1.img.copyTo(roi);
+    // Expand Panorama if needed
+    if (newWidth > Panorama.cols || newHeight > Panorama.rows) {
+        cv::Mat newPanorama = cv::Mat::zeros(newHeight, newWidth, Panorama.type());
+        Panorama.copyTo(newPanorama(cv::Rect(xOffset, yOffset, Panorama.cols, Panorama.rows)));
+        Panorama = newPanorama;
+    }
 
-    return panorama;
+    // Translate homography to fit new panorama
+    cv::Mat translation = (cv::Mat_<double>(3,3) << 1,0,xOffset, 0,1,yOffset, 0,0,1);
+    cv::Mat H_translated = translation * GHomography;
+
+    // Warp img2 safely
+    cv::Mat warped;
+    cv::warpPerspective(img2.img, warped, H_translated, Panorama.size());
+
+    // Copy warped img2 into Panorama safely
+    cv::Mat roi = Panorama(cv::Rect(0, 0, std::min(warped.cols, Panorama.cols), std::min(warped.rows, Panorama.rows)));
+    cv::Mat warpedROI = warped(cv::Rect(0, 0, roi.cols, roi.rows));
+    //warpedROI.copyTo(roi);
+
+    return Panorama;
 }
+
+
+
+
+// cv::Mat generatePanorama(const image& img1, const image& img2, cv::Mat& Panorama, cv::Mat& GHomography)
+// {
+//     CV_Assert(!img1.img.empty() && !img2.img.empty());
+//     CV_Assert(!img1.H.empty());
+
+//     // Inverse homography maps img2 → img1
+//     cv::Mat H_inv = img1.H.inv();
+//     GHomography = GHomography * H_inv;
+
+//     // Warp corners of img2 to img1 coordinate space
+//     std::vector<cv::Point2f> cornersImg2 = {
+//         {0,0},
+//         {static_cast<float>(img2.img.cols),0},
+//         {static_cast<float>(img2.img.cols),static_cast<float>(img2.img.rows)},
+//         {0, static_cast<float>(img2.img.rows)}
+//     };
+//     std::vector<cv::Point2f> warpedCorners(4);
+//     cv::perspectiveTransform(cornersImg2, warpedCorners, H_inv);
+
+//     // Compute bounding box of panorama
+//     float minX = 0, minY = 0;
+//     float maxX = static_cast<float>(img1.img.cols);
+//     float maxY = static_cast<float>(img1.img.rows);
+
+//     for (const auto& pt : warpedCorners) {
+//         minX = std::min(minX, pt.x);
+//         minY = std::min(minY, pt.y);
+//         maxX = std::max(maxX, pt.x);
+//         maxY = std::max(maxY, pt.y);
+//     }
+
+//     // Translation to handle negative coordinates
+//     cv::Mat translation = (cv::Mat_<double>(3,3) << 1,0,-minX, 0,1,-minY, 0,0,1);
+//     cv::Mat H_translated = translation * H_inv;
+
+//     int panoWidth = static_cast<int>(maxX - minX);
+//     int panoHeight = static_cast<int>(maxY - minY);
+
+//     // Warp img2 into panorama
+//     cv::Mat panorama;
+//     cv::warpPerspective(img2.img, panorama, H_translated, cv::Size(panoWidth, panoHeight));
+
+//     // Copy img1 into panorama
+//     cv::Mat roi = panorama(cv::Rect(static_cast<int>(-minX), static_cast<int>(-minY), img1.img.cols, img1.img.rows));
+//     img1.img.copyTo(roi);
+
+//     return panorama;
+// }
 
 
 
@@ -321,7 +394,8 @@ void image::set(const std::string& image_name) {
     }
 
     // on-the-fly process
-    for(int i=0; i<ROIs.size(); i++){
+    float percentatge=0.5;
+    for(int i=ROIs.size()*(0.5-percentatge); i<ROIs.size()*(0.5+percentatge); i++){
         for(int j=0; j<ROIs[i].size(); j++){
             detectorb(img, ROIs[i][j], orb);
         }
@@ -330,6 +404,10 @@ void image::set(const std::string& image_name) {
     //
 }
 
+void image::reset(){
+    roi_matches.clear();
+    id=-1;
+}
 
 // Constructor
 ImageStitcher::ImageStitcher() {
@@ -355,14 +433,16 @@ void ImageStitcher::addImage(const std::string& image_name) {
     }
 
     if(n_images >= 2) {
-        matchorb(img1, img2, img1.roi_matches);
-        ransac(img1);
-        cv::Mat panorama = generatePanorama(img1, img2);
-        cv::imwrite("../../outputs/panorama.jpg", panorama);
+        if(n_images%2==0){
+            matchorb(img1, img2, img1.roi_matches);
+            ransac(img1);
+            cv::Mat panorama = generatePanorama(img1, img2, Panorama, GHomography, nmax);
+            img1.id=-1;
+            cv::imwrite("../../outputs/panorama.jpg", panorama);
+        }else{
+
+        }
+
     }
 }
 
-// Stitch images and return result
-cv::Mat ImageStitcher::stitch() {
-
-}

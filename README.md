@@ -17,6 +17,11 @@
 - **Note:** An uninterruptible background process was active during the experiments, which may have slightly impacted performance metrics.
 
 ### Sample Result
+
+| img1.jpg | img2.jpg | img3.jpg |
+|----------|----------|----------|
+| ![img1](inputs/C/20250821_195822.jpg) | ![img2](inputs/C/20250821_195825.jpg) | ![img3](inputs/C/20250821_195827.jpg) |
+
 ![Set C](outputs/panorama.jpg)
 
 ## Performance and Bottleneck Analysis

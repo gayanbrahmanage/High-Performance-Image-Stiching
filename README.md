@@ -62,6 +62,7 @@ cd HPIS/build
 |----------|----------|----------|
 | <img src="inputs/C/20250821_195822.jpg" width="50%"> | <img src="inputs/C/20250821_195825.jpg" width="50%"> | <img src="inputs/C/20250821_195827.jpg" width="50%"> |
 
+### Panorama Image
 <img src="outputs/panorama.jpg" width="50%">
 
 

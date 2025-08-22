@@ -1,0 +1,11 @@
+# Ignore build folder
+HPIS/build/
+
+# Ignore compiled binaries or executables
+*.exe
+*.out
+*.o
+
+# Ignore temporary files
+*.log
+*.tmp

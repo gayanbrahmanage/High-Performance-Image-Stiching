@@ -1,11 +1,32 @@
-# Performance and Bottleneck Analysis
+# Performance Report
+
+## Image Specification
+| Parameter          | Value      |
+|-------------------|-----------|
+| Image Width       | 2268 px   |
+| Image Height      | 4032 px   |
+| Number of Pixels  | ~9.2M     |
+
+---
+
+## Experiment Environment and Setup
+- **Processor:** Intel Xeon E5-2699A v4 @ 2.40GHz  
+- **Memory:** 16 GB  
+- **Operating System:** Ubuntu 24.04.2 LTS  
+- **Execution:** Single-threaded, sequential execution  
+- **Note:** An uninterruptible background process was active during the experiments, which may have slightly impacted performance metrics.
+
+### Sample Result
+![Set C](outputs/panorama.jpg)
+
+## Performance and Bottleneck Analysis
 
 This section documents timing and memory usage across three test sets (A, B, C).  
 Optimizations include **object reuse**, **pre-allocated buffers**, and **const references** to reduce copying and memory allocation overhead.
 
 ---
 
-## Timing Details (ms)
+### Timing Details (ms)
 
 | Stage           | Set A     | Set B     | Set C     |
 |-----------------|-----------|-----------|-----------|
@@ -15,7 +36,6 @@ Optimizations include **object reuse**, **pre-allocated buffers**, and **const r
 | **RANSAC**        | 7.161     | 4.083     | 5.311     |
 | **Warping**       | 153.042   | 114.500   | 120.299   |
 
-![Timing Bar Chart](timing.png)
 
 **Observations:**
 - ORB detection is the primary computational bottleneck.
@@ -24,7 +44,7 @@ Optimizations include **object reuse**, **pre-allocated buffers**, and **const r
 
 ---
 
-## Memory Usage (KB)
+### Memory Usage (KB)
 
 | Stage           | Set A     | Set B     | Set C     |
 |-----------------|-----------|-----------|-----------|
@@ -34,7 +54,7 @@ Optimizations include **object reuse**, **pre-allocated buffers**, and **const r
 | **RANSAC**        | 0         | 0         | 0         |
 | **Warping**       | 176,540   | 174,800   | 176,516   |
 
-![Memory Bar Chart](memory.png)
+
 
 **Observations:**
 - Warping stage dominates memory usage due to large intermediate images.
@@ -43,7 +63,7 @@ Optimizations include **object reuse**, **pre-allocated buffers**, and **const r
 
 ---
 
-## Key Optimizations
+### Key Optimizations
 
 - Pre-allocated panorama buffers to avoid repeated allocations.
 - Reuse of two image objects throughout all stitching operations.

@@ -1,3 +1,41 @@
+# High-Performance Image Stitching (HPIS)
+
+## Installation and Running Instructions
+
+Follow these steps to clone the repository, build the application, and run the main executable.
+
+### 1. Clone the Repository
+Start by cloning the project from GitHub using git:
+
+```bash
+git clone https://github.com/gayanbrahmanage/High-Performance-Image-Stiching.git
+
+```
+
+### 2. Navigate to the Project Directory
+Change your current directory to the root of the newly cloned repository:
+
+```
+cd High-Performance-Image-Stiching
+```
+
+### 3. Run the Installation Script
+
+Execute the install.sh script to set up the build environment and compile the project dependencies. This script should be run from the root directory:
+
+```
+bash ./install.sh
+```
+
+### 4.  Run the Application
+
+After the build process is complete, navigate to the executable's directory and run the application. The program requires a path to the input images as an argument:
+
+```
+cd HPIS/build
+./app ../../inputs/C
+```
+
 # Performance Report
 
 ## Image Specification

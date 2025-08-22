@@ -368,5 +368,6 @@ CMakeFiles/app.dir/src/app.cpp.o: \
  /usr/include/x86_64-linux-gnu/c++/13/bits/basic_file.h \
  /usr/include/x86_64-linux-gnu/c++/13/bits/c++io.h \
  /usr/include/c++/13/bits/fstream.tcc \
+ /home/gayan/old2/High-Performance-Image-Stiching/HPIS/include/Profiler.hpp \
  /home/gayan/old2/High-Performance-Image-Stiching/HPIS/include/utils.hpp \
  /home/gayan/old2/High-Performance-Image-Stiching/HPIS/include/ImageStitcher.h

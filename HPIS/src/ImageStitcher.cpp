@@ -1,6 +1,10 @@
 #include "ImageStitcher.h"
 
-// Custom distance function (you already provided)
+// Optimized distance metric using bitwise operations  
+// Leverages boolean XOR + popcount for fast Hamming distance  
+// Avoids per-bit comparisons, enabling SIMD/vectorized execution  
+// Provides efficient matching for binary descriptors (e.g., ORB)  
+
 inline int DescriptorDistance(const cv::Mat &a, const cv::Mat &b){
     const int *pa = a.ptr<int32_t>();
     const int *pb = b.ptr<int32_t>();
@@ -16,7 +20,12 @@ inline int DescriptorDistance(const cv::Mat &a, const cv::Mat &b){
     return dist;
 }
 
-inline void detectorb(const cv::Mat& img, roi& r, cv::Ptr<cv::ORB> orb)
+// Detect keypoints restricted to the ROI only  
+// Faster and more efficient than OpenCV’s built-in mask approach  
+// Select strongest ROI features based on gradient response  
+// Tag ROI as valid region for matching → reduces BF matcher search space  
+
+inline void detectorb(const cv::Mat& img, roi& r, const cv::Ptr<cv::ORB> orb)
 {
     // Detect keypoints and compute descriptors in the ROI patch
     std::vector<cv::KeyPoint> keypoints;
@@ -53,6 +62,16 @@ inline void detectorb(const cv::Mat& img, roi& r, cv::Ptr<cv::ORB> orb)
     // Extract the corresponding descriptor
     r.descriptor = descriptors.row(bestIdx).clone();
 }
+
+// Perform matching in grid space → avoids looping over all pixels/keypoints  
+// Directly search in neighboring ROIs of target image for efficiency  
+// Rotation assumed about vertical axis → primary search along horizontal direction  
+// Expand search ±1 row vertically to handle distortions or vertical drift  
+// Limit max Hamming distance to 64 → prevents ambiguous matches  
+// Store source ↔ target keypoint pairs in a shared structure for fast access  
+// Cache matched ROIs for both images → avoids repeated full-ROI iterations  
+// Always validate ROI before usage to ensure reliability  
+
 
 inline void matchorb(image& img1, image& img2, std::vector<std::pair<int,int>>& roi_matches)
 {
@@ -93,18 +112,20 @@ inline void matchorb(image& img1, image& img2, std::vector<std::pair<int,int>>& 
 
             if (bestMatch.x >= 0)
             {
-                // std::cout << "ROI (" << i << "," << j << ") best match -> ("
-                //           << bestMatch.y << "," << bestMatch.x 
-                //           << ") with dist=" << bestDist << std::endl;
                 img1.ROIs[i][j].keypoint_match = img2.ROIs[bestMatch.y][bestMatch.x].keypoint;
                 roi_matches.emplace_back(i, j);
             }
         }
     }
-    std::cout << "Found " << roi_matches.size() << " matches." << std::endl;
+    
 }
 
-// Compute homography from exactly 4 point correspondences
+// Estimate homography using exactly 4 point correspondences  
+// Construct linear system (A·h = 0) from point pairs  
+// Solve via Singular Value Decomposition (SVD) → take right singular vector  
+// Reshape solution into 3×3 homography matrix  
+// Normalize so that H(3,3) = 1 for numerical stability  
+
 inline cv::Mat computeHomography4Points(const std::vector<cv::Point2f>& srcPoints,
                                  const std::vector<cv::Point2f>& dstPoints) {
     if (srcPoints.size() != 4 || dstPoints.size() != 4) {
@@ -179,6 +200,12 @@ inline double computeReprojectionError(const image& img1, const cv::Mat& H)
     return totalError / count; // mean reprojection error
 }
 
+// RANSAC iterations capped at 100 → sufficient to maintain consistency across trials  
+// Early exit: if mean reprojection error < empirically set threshold → stop before all iterations  
+// This accelerates convergence while preserving robustness of outlier rejection  
+// Grid-based search further limits candidate space → lowers chance of sampling outliers  
+// Improves both efficiency and reliability of RANSAC homography estimation  
+
 inline void ransac(image& img1) {
     cv::RNG rng(cv::getTickCount());
 
@@ -215,134 +242,67 @@ inline void ransac(image& img1) {
             bestError = error;
             bestH = H.clone();
         }
+
+        if(error<30.0){
+            break;
+        }
+
     }
 
-    std::cout << "Best reprojection error: " << bestError << std::endl;
-    if (!bestH.empty()) {
-        std::cout << "Best Homography:\n" << bestH << std::endl;
-    }
+    //std::cout << "Best reprojection error: " << bestError << std::endl;
+    // if (!bestH.empty()) {
+    //     std::cout << "Best Homography:\n" << bestH << std::endl;
+    // }
 
     img1.H = bestH;
 
 }
 
-cv::Mat generatePanorama(const image& img1, const image& img2, cv::Mat& Panorama, cv::Mat& GHomography, int nmax)
+// Preallocate panorama image buffer with a fixed maximum size  
+// Incrementally add new frames to the panorama as they arrive  
+// Use cv::warpPerspective() to warp incoming image into panorama space  
+// Warping is based on relative Homography between current panorama and new frame  
+
+
+inline void generatePanorama(const image& img1, const image& img2, cv::Mat& Panorama, cv::Mat& GHomography, int nmax)
 {
     CV_Assert(!img1.img.empty() && !img2.img.empty());
     CV_Assert(!img1.H.empty());
 
-    // First image: initialize Panorama and GHomography
+    int panoOffsetX = 0;
+    int panoOffsetY = 0;
+
+    // Initialize Panorama and GHomography for first image
     if (img1.id == 1) {
         Panorama = cv::Mat::zeros(img1.img.rows, img1.img.cols * nmax, img1.img.type());
         img1.img.copyTo(Panorama(cv::Rect(0, 0, img1.img.cols, img1.img.rows)));
-        GHomography = img1.H.clone();
-    } else {
-        // Accumulate homography
-        GHomography = GHomography * img1.H.inv();
+        GHomography = cv::Mat::eye(3,3,CV_64F);
     }
 
-    // Warp img2 corners in Panorama space
-    std::vector<cv::Point2f> corners = {
-        {0.f, 0.f},
-        {static_cast<float>(img2.img.cols), 0.f},
-        {static_cast<float>(img2.img.cols), static_cast<float>(img2.img.rows)},
-        {0.f, static_cast<float>(img2.img.rows)}
-    };
-    std::vector<cv::Point2f> warpedCorners(4);
-    cv::perspectiveTransform(corners, warpedCorners, GHomography);
+    // Compute relative homography of img2 w.r.t Panorama
+    GHomography = GHomography * img1.H.inv();
 
-    // Compute bounding box
-    float minX = 0.f, minY = 0.f;
-    float maxX = static_cast<float>(Panorama.cols);
-    float maxY = static_cast<float>(Panorama.rows);
-    for (auto& pt : warpedCorners) {
-        minX = std::min(minX, pt.x);
-        minY = std::min(minY, pt.y);
-        maxX = std::max(maxX, pt.x);
-        maxY = std::max(maxY, pt.y);
-    }
-
-    int xOffset = static_cast<int>(-std::floor(minX));
-    int yOffset = static_cast<int>(-std::floor(minY));
-    int newWidth = static_cast<int>(std::ceil(maxX)) + xOffset;
-    int newHeight = static_cast<int>(std::ceil(maxY)) + yOffset;
-
-    // Expand Panorama if needed
-    if (newWidth > Panorama.cols || newHeight > Panorama.rows) {
-        cv::Mat newPanorama = cv::Mat::zeros(newHeight, newWidth, Panorama.type());
-        Panorama.copyTo(newPanorama(cv::Rect(xOffset, yOffset, Panorama.cols, Panorama.rows)));
-        Panorama = newPanorama;
-    }
-
-    // Translate homography to fit new panorama
-    cv::Mat translation = (cv::Mat_<double>(3,3) << 1,0,xOffset, 0,1,yOffset, 0,0,1);
+    // Add translation to account for first image offset in Panorama
+    cv::Mat translation = (cv::Mat_<double>(3,3) << 
+        1, 0, panoOffsetX,
+        0, 1, panoOffsetY,
+        0, 0, 1);
     cv::Mat H_translated = translation * GHomography;
+    
 
-    // Warp img2 safely
+    // Warp img2 into Panorama
     cv::Mat warped;
     cv::warpPerspective(img2.img, warped, H_translated, Panorama.size());
 
-    // Copy warped img2 into Panorama safely
-    cv::Mat roi = Panorama(cv::Rect(0, 0, std::min(warped.cols, Panorama.cols), std::min(warped.rows, Panorama.rows)));
-    cv::Mat warpedROI = warped(cv::Rect(0, 0, roi.cols, roi.rows));
-    //warpedROI.copyTo(roi);
+    // Mask for non-zero pixels
+    cv::Mat mask;
+    cv::cvtColor(warped, mask, cv::COLOR_BGR2GRAY);
+    cv::threshold(mask, mask, 0, 255, cv::THRESH_BINARY);
 
-    return Panorama;
+    // Copy warped img2 into Panorama
+    warped.copyTo(Panorama, mask);
+
 }
-
-
-
-
-// cv::Mat generatePanorama(const image& img1, const image& img2, cv::Mat& Panorama, cv::Mat& GHomography)
-// {
-//     CV_Assert(!img1.img.empty() && !img2.img.empty());
-//     CV_Assert(!img1.H.empty());
-
-//     // Inverse homography maps img2 → img1
-//     cv::Mat H_inv = img1.H.inv();
-//     GHomography = GHomography * H_inv;
-
-//     // Warp corners of img2 to img1 coordinate space
-//     std::vector<cv::Point2f> cornersImg2 = {
-//         {0,0},
-//         {static_cast<float>(img2.img.cols),0},
-//         {static_cast<float>(img2.img.cols),static_cast<float>(img2.img.rows)},
-//         {0, static_cast<float>(img2.img.rows)}
-//     };
-//     std::vector<cv::Point2f> warpedCorners(4);
-//     cv::perspectiveTransform(cornersImg2, warpedCorners, H_inv);
-
-//     // Compute bounding box of panorama
-//     float minX = 0, minY = 0;
-//     float maxX = static_cast<float>(img1.img.cols);
-//     float maxY = static_cast<float>(img1.img.rows);
-
-//     for (const auto& pt : warpedCorners) {
-//         minX = std::min(minX, pt.x);
-//         minY = std::min(minY, pt.y);
-//         maxX = std::max(maxX, pt.x);
-//         maxY = std::max(maxY, pt.y);
-//     }
-
-//     // Translation to handle negative coordinates
-//     cv::Mat translation = (cv::Mat_<double>(3,3) << 1,0,-minX, 0,1,-minY, 0,0,1);
-//     cv::Mat H_translated = translation * H_inv;
-
-//     int panoWidth = static_cast<int>(maxX - minX);
-//     int panoHeight = static_cast<int>(maxY - minY);
-
-//     // Warp img2 into panorama
-//     cv::Mat panorama;
-//     cv::warpPerspective(img2.img, panorama, H_translated, cv::Size(panoWidth, panoHeight));
-
-//     // Copy img1 into panorama
-//     cv::Mat roi = panorama(cv::Rect(static_cast<int>(-minX), static_cast<int>(-minY), img1.img.cols, img1.img.rows));
-//     img1.img.copyTo(roi);
-
-//     return panorama;
-// }
-
-
 
 roi::roi(){
 
@@ -361,10 +321,13 @@ image::~image(){
 }
 
 void image::set(const std::string& image_name) {
+
+    profiler.start();
     img = cv::imread(image_name);
     if (img.empty()) {
         throw std::runtime_error("Could not open or find the image");
     }
+    profiler.end("Loading an Image");
 
     // initialization
     width = img.cols;
@@ -394,12 +357,15 @@ void image::set(const std::string& image_name) {
     }
 
     // on-the-fly process
+    profiler.start();
     float percentatge=0.5;
     for(int i=ROIs.size()*(0.5-percentatge); i<ROIs.size()*(0.5+percentatge); i++){
         for(int j=0; j<ROIs[i].size(); j++){
             detectorb(img, ROIs[i][j], orb);
         }
     }
+    profiler.end("Detect ORB");
+
 
     //
 }
@@ -419,7 +385,12 @@ ImageStitcher::~ImageStitcher() {
     // Empty for now
 }
 
-// Add an image to the stitcher
+// Add an image to the stitcher  
+// To minimize memory allocations, define a lightweight Image class holding only required variables  
+// Maintain only two Image objects throughout execution  
+// Reuse these two objects alternately for all incoming frames instead of creating new ones each time  
+
+
 void ImageStitcher::addImage(const std::string& image_name) {
     if(img1.id==-1){
         img1.set(image_name);
@@ -434,15 +405,31 @@ void ImageStitcher::addImage(const std::string& image_name) {
 
     if(n_images >= 2) {
         if(n_images%2==0){
+            profiler.start();
             matchorb(img1, img2, img1.roi_matches);
-            ransac(img1);
-            cv::Mat panorama = generatePanorama(img1, img2, Panorama, GHomography, nmax);
-            img1.id=-1;
-            cv::imwrite("../../outputs/panorama.jpg", panorama);
-        }else{
+            profiler.end("Match ORB");
 
+            profiler.start();
+            ransac(img1);
+            profiler.end("Ransac");
+
+            profiler.start();
+            generatePanorama(img1, img2, Panorama, GHomography, nmax);
+            profiler.end("Warping");
+
+            img1.reset();
+            
+        }else{
+            matchorb(img2, img1, img2.roi_matches);
+            ransac(img2);
+            generatePanorama(img2, img1, Panorama, GHomography, nmax);
+            img2.reset();
+            
         }
 
+        
     }
+
+    
 }
 

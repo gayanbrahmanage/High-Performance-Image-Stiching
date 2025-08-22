@@ -6,7 +6,7 @@
 #include <string>
 #include <thread> 
 #include <unordered_set>
-
+#include "Profiler.hpp"
 
 class roi{
     public:
@@ -33,13 +33,15 @@ class image{
         // 31 → patchSize
         // 5 → fastThreshold
 
+        Profiler profiler;
+
         std::vector<std::pair<int,int>> roi_matches;
         cv::Mat H;
         int id=-1;
         int width=2268;
         int height=4032;
-        int roi_width=50;
-        int roi_height=50;
+        int roi_width=100;
+        int roi_height=100;
         int roi_row_count;
         int roi_col_count;
         std::vector<std::vector<roi>> ROIs;
@@ -61,6 +63,8 @@ public:
     image img2;
     cv::Mat Panorama;  // global canvas
     cv::Mat GHomography = cv::Mat::eye(3, 3, CV_64F); // global accumulated H
+
+    Profiler profiler;
 
     // Constructor
     ImageStitcher();

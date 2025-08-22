@@ -18,20 +18,19 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    for (const auto& f : files) std::cout << f << std::endl;
-
     ImageStitcher stitcher;
     stitcher.nmax=files.size();
     Profiler profiler;
     profiler.start();
-    stitcher.addImage(files[0]);
-    stitcher.addImage(files[1]);
+    for (const auto& f : files){
+        stitcher.addImage(f);
+        std::cout << "Added " <<f<< std::endl;
+    }
+
     profiler.end("Image Stitching Resource Usage");
 
-    cv::imwrite("../../outputs/stitched_image.jpg", Utils::draw(stitcher.img1));
-    cv::imwrite("../../outputs/stitched_image2.jpg", Utils::draw(stitcher.img2));
-    cv::imwrite("../../outputs/matched_rois.jpg", Utils::drawMatchesROIs(stitcher.img1, stitcher.img2));
-
+    cv::imwrite("../../outputs/panorama.jpg", stitcher.Panorama);
+    
     return 0;
 }
 
